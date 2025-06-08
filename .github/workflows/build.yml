@@ -25,18 +25,25 @@ on:
             KERNEL_GIT_BRANCH:
                 description: 'Preferred branch of the kernel source git repository:'
                 required: true
-            KERNEL_ARCHITECTURE:
+            KERNEL_ARCH:
                 type: choice
                 description: 'Kernel architecture (seperate from Android architecture):'
                 required: true
                 options:
                     - 'arm64'
                     - 'arm'
+            KERNEL_COMPILER:
+                type: choice
+                description: 'Which compiler would you like to use?'
+                required: true
+                options:
+                    - 'Clang/LLVM'
+                    - 'GCC/Binutils'
             KERNEL_CONFIGS:
                 description: 'Space-seperated list of kernel configs your designated device requires by order (!IMPORTANT AND DANGEROUS!):'
                 required: true
             KERNEL_LOCALVERSION:
-                description: 'Suffix for your kernel version (leave blank if unsure):'
+                description: 'Suffix for your kernel version (must not contain spaces, leave blank if unsure):'
                 required: false
             #KERNEL_EXTRA_CONFIGS:
             #    description: 'Extra kernel configuration lines (!USE AT YOUR OWN RISK!, leave blank if unsure, please):'
@@ -51,7 +58,7 @@ jobs:
           with:
            fetch-depth: 0
 
-        - name: 'Setup dependencies'
+        - name: 'Setup dependencies and environment'
           run: |
             sudo cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources~
             sudo sed -Ei 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
@@ -59,6 +66,17 @@ jobs:
 
             # Install kernel build dependencies
             sudo apt build-dep -y linux
+
+            # Install clang and LLVM
+            LATEST_LLVM_TOOLCHAIN=$(curl -sSf https://api.github.com/repos/llvm/llvm-project/releases/latest | grep browser_download_url | cut -d '"' -f 4 | grep -wi "Linux-X64.tar.xz"$)
+            wget $LATEST_LLVM_TOOLCHAIN -O ./LLVM-latest-Linux-X64.tar.xz
+            tar --wildcards -xvpf ./LLVM-latest-Linux-X64.tar.xz --warning=no-file-changed --ignore-failed-read || true
+            rm -rf *.tar.xz
+
+            # Install GCC for aarch64 and arm(32)
+            wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-linux-gnueabihf.tar.xz https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
+            for file in *.tar.xz; do tar --wildcards -xvpf $file --warning=no-file-changed --ignore-failed-read || true; done
+            rm -rf *.tar.xz
 
             # Compile and install coccinelle
             sudo apt-get build-dep -y coccinelle
@@ -109,3 +127,23 @@ jobs:
 
             # Cleanup
             rm -rf ./kernelsu-coccinelle
+
+        - name: 'Generate the kernel .config file'
+          working-directory: './kernel-src'
+          run: |
+            # Generate kernel config using make
+            if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'Clang/LLVM' ]; then
+                make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/LLVM-*-Linux-X64/bin)/clang LLVM=$(realpath ~/**/LLVM-*-Linux-X64/bin)/ LLVM_IAS=1 LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+            fi
+
+            if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                fi
+            else
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                fi
+            fi
+
+            echo 'CONFIG_KSU_KPROBES_HOOK=n' >> out/.config
