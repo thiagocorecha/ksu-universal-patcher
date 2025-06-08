@@ -43,7 +43,7 @@ on:
             #    required: false
 
 jobs:
-    initial:
+    build:
         runs-on: ubuntu-latest
         steps:
         - name: Checkout Repository
@@ -51,6 +51,6 @@ jobs:
           with:
            fetch-depth: 0
 
-        - name: 'Oh, uh, hi. Ha, yo, haha, yo!'
+        - name: 'Clone kernel source'
           run: |
-            echo 'What's up!'
+            git clone --depth=1 ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }} ./kernel-src
