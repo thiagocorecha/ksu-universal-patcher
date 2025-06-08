@@ -1,0 +1,56 @@
+name: Build a kernel with KernelSU patched and SuSFS
+on:
+    workflow_dispatch:
+        # Various inputs to simplify usage of workflow.
+        inputs:
+            KSU_GIT:
+                description: 'Link to the git repository of the KernelSU variant (leave it be for KernelSU-Next or if unsure):'
+                required: false
+                default: 'https://github.com/KernelSU-Next/KernelSU-Next.git'
+            KSU_GIT_BRANCH:
+                description: 'Preferred branch of the preferred KernelSU git repository (leave it be for KernelSU-Next, otherwise must define):'
+                required: false
+                default: 'next'
+            INCLUDE_SUSFS:
+                type: choice
+                description: 'Would you like to build the kernel with SuSFS (leave it blank if unsure)?'
+                required: false
+                default: 'No'
+                options:
+                    - 'Yes'
+                    - 'No'
+            KERNEL_GIT:
+                description: 'Link to the git repository of your preferred kernel source:'
+                required: true
+            KERNEL_GIT_BRANCH:
+                description: 'Preferred branch of the kernel source git repository:'
+                required: true
+            KERNEL_ARCHITECTURE:
+                type: choice
+                description: 'Kernel architecture (seperate from Android architecture):'
+                required: true
+                options:
+                    - 'arm64'
+                    - 'arm'
+            KERNEL_CONFIGS:
+                description: 'Space-seperated list of kernel configs your designated device requires by order (!IMPORTANT AND DANGEROUS!):'
+                required: true
+            KERNEL_LOCALVERSION:
+                description: 'Suffix for your kernel version (leave blank if unsure):'
+                required: false
+            #KERNEL_EXTRA_CONFIGS:
+            #    description: 'Extra kernel configuration lines (!USE AT YOUR OWN RISK!, leave blank if unsure, please):'
+            #    required: false
+
+jobs:
+    initial:
+        runs-on: ubuntu-latest
+        steps:
+        - name: Checkout Repository
+          uses: actions/checkout@v4
+          with:
+           fetch-depth: 0
+
+        - name: 'Oh, uh, hi. Ha, yo, haha, yo!'
+          run: |
+            echo 'What's up!'
