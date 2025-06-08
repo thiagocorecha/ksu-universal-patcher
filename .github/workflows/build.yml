@@ -57,6 +57,9 @@ jobs:
             sudo sed -Ei 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
             sudo apt-get update -y
 
+            # Install kernel build dependencies
+            sudo apt build-dep -y linux
+
             # Compile and install coccinelle
             sudo apt-get build-dep -y coccinelle
             git clone --depth=1 https://github.com/coccinelle/coccinelle.git
