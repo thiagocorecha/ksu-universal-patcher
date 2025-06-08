@@ -4,7 +4,7 @@ on:
         # Various inputs to simplify usage of workflow.
         inputs:
             KSU_GIT:
-                description: 'Link to the git repository of the KernelSU variant (leave it be for KernelSU-Next or if unsure):'
+                description: 'Link to KernelSU git repository (leave it be for KernelSU-Next or if unsure):'
                 required: false
                 default: 'https://github.com/KernelSU-Next/KernelSU-Next.git'
             KSU_GIT_BRANCH:
@@ -12,13 +12,10 @@ on:
                 required: false
                 default: 'next'
             INCLUDE_SUSFS:
-                type: choice
-                description: 'Would you like to build the kernel with SuSFS (leave it be if unsure)?'
+                type: boolean
+                description: 'Build with SuSFS (leave it be if unsure)?'
                 required: false
-                default: 'No'
-                options:
-                    - 'Yes'
-                    - 'No'
+                default: false
             KERNEL_GIT:
                 description: 'Link to the git repository of your preferred kernel source:'
                 required: true
@@ -34,20 +31,20 @@ on:
                     - 'arm'
             KERNEL_COMPILER:
                 type: choice
-                description: 'Which compiler would you like to use?'
+                description: 'Compiler choice:'
                 required: true
                 options:
                     - 'Clang/LLVM'
                     - 'GCC/Binutils'
-            KERNEL_CONFIGS:
-                description: 'Space-seperated list of kernel configs your designated device requires by order (!IMPORTANT AND DANGEROUS!):'
-                required: true
-            KERNEL_LOCALVERSION:
-                description: 'Suffix for your kernel version (must not contain spaces, leave blank if unsure):'
+            KERNEL_COMPILER_TOOLCHAIN:
+                description: 'Direct link to custom compiler prebuilt toolchain (leave blank if not required):'
                 required: false
-            #KERNEL_EXTRA_CONFIGS:
-            #    description: 'Extra kernel configuration lines (!USE AT YOUR OWN RISK!, leave blank if unsure, please):'
-            #    required: false
+            KERNEL_COMPILER_PREFIX:
+                description: 'Path prefix for custom prebuilt toolchain (must define if custom toolchain, otherwise leave blank):'
+                required: false
+            KERNEL_CONFIGS:
+                description: 'Space-seperated list of kernel configs by order (!IMPORTANT AND DANGEROUS!):'
+                required: true
 
 jobs:
     build:
@@ -77,6 +74,43 @@ jobs:
             wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-linux-gnueabihf.tar.xz https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-linux-gnu.tar.xz
             for file in *.tar.xz; do tar --wildcards -xvpf $file --warning=no-file-changed --ignore-failed-read || true; done
             rm -rf *.tar.xz
+
+            # Install some general dependencies
+            sudo apt-get install -y p7zip-full tar bzip2 unrar gzip zip unzip
+
+            # Download and extract compiler toolchain
+            extract ()
+            {
+            if [ -f $1 ] ; then
+                case $1 in
+                *.tar.bz2)   tar xjf $1   ;;
+                *.tar.gz)    tar xzf $1   ;;
+                *.bz2)       bunzip2 $1   ;;
+                *.rar)       unrar x $1   ;;
+                *.gz)        gunzip $1    ;;
+                *.tar)       tar xf $1    ;;
+                *.tbz2)      tar xjf $1   ;;
+                *.tgz)       tar xzf $1   ;;
+                *.zip)       unzip $1     ;;
+                *.Z)         uncompress $1;;
+                *.7z)        7z x $1      ;;
+                *.deb)       ar x $1      ;;
+                *.tar.xz)    tar xf $1    ;;
+                *)           echo "'$1' cannot be extracted via extract()" ;;
+                esac
+            else
+                echo "'$1' is not a valid file"
+            fi
+            }
+
+            if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                mkdir ./compiler-toolchain/
+                wget ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} -P ./compiler-toolchain/
+
+                cd ./compiler-toolchain/
+                extract ./*
+                cd ../
+            fi
 
             # Compile and install coccinelle
             sudo apt-get build-dep -y coccinelle
@@ -126,23 +160,29 @@ jobs:
             for p in fs drivers/input drivers/tty arch/arm/kernel; do spatch --sp-file ./kernelsu-coccinelle/scope-minimized-hooks/kernelsu-scope-minimized.cocci --in-place --linux-spacing "$p"; done
 
             # Cleanup
-            rm -rf ./kernelsu-coccinelle
+            rm -rf ./kernelsu-coccinelle/
 
         - name: 'Generate the kernel .config file'
           working-directory: './kernel-src'
           run: |
             # Generate kernel config using make
             if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'Clang/LLVM' ]; then
-                make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/LLVM-*-Linux-X64/bin)/clang LLVM=$(realpath ~/**/LLVM-*-Linux-X64/bin)/ LLVM_IAS=1 LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }}clang LLVM=$(realpath ~)/**/compiler-toolchain/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }} LLVM_IAS=1 -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                else
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/LLVM-*-Linux-X64/bin)/clang LLVM=$(realpath ~/**/LLVM-*-Linux-X64/bin)/ LLVM_IAS=1 -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                fi
             fi
 
-            if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
-                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
-                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
-                fi
-            else
-                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
-                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+            if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }}gcc CROSS_COMPILE=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                else
+                    if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
+                        make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf- -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                    else
+                        make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu- -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                    fi
                 fi
             fi
 
@@ -153,15 +193,21 @@ jobs:
           run: |
             # Compile using make
             if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'Clang/LLVM' ]; then
-                make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/LLVM-*-Linux-X64/bin)/clang LLVM=$(realpath ~/**/LLVM-*-Linux-X64/bin)/ LLVM_IAS=1 LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
+                if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }}clang LLVM=$(realpath ~)/**/compiler-toolchain/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }} LLVM_IAS=1 -j$(nproc --all) O=out
+                else
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/LLVM-*-Linux-X64/bin)/clang LLVM=$(realpath ~/**/LLVM-*-Linux-X64/bin)/ LLVM_IAS=1 -j$(nproc --all) O=out
+                fi
             fi
 
-            if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
-                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
-                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
-                fi
-            else
-                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
-                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
+            if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }}gcc CROSS_COMPILE=$(realpath ~/**/compiler-toolchain)/${{ github.event.inputs.KERNEL_COMPILER_PREFIX }} -j$(nproc --all) O=out
+                else
+                    if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
+                        make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-arm-none-linux-gnu*/bin)/arm-none-linux-gnueabihf- -j$(nproc --all) O=out
+                    else
+                        make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu-gcc CROSS_COMPILE=$(realpath ~/**/arm-gnu-toolchain-*-x86_64-aarch64-none-linux-gnu*/bin)/aarch64-none-linux-gnu- -j$(nproc --all) O=out
+                    fi
                 fi
             fi
