@@ -126,19 +126,29 @@ jobs:
             rm -rf ./kernel-src*/
             mkdir ./kernel-src-clone/
             cd ./kernel-src-clone/
-            if repo init --no-repo-verify --git-lfs --depth=1 -u ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }}; then
-                echo "--- Syncing via repo ---"
-                repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
-                echo "--- Syncing finished ---"
-                cd ..
-                ln -sf $(find ./kernel-src-clone/ -maxdepth 2 -type d -name "common" | head -n 1) ./kernel-src
+
+            if git ls-remote ${{ github.event.inputs.KERNEL_GIT }} | grep -w "${{ github.event.inputs.KERNEL_GIT_BRANCH }}" > /dev/null; then
+                echo "--- Kernel source git link and branch points to a valid git repo! ---"
+                if repo init --no-repo-verify --git-lfs --depth=1 -u ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }}; then
+                    echo "--- Syncing via repo ---"
+                    repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
+                    echo "--- Syncing finished ---"
+                    cd ..
+                    ln -sf $(find ./kernel-src-clone/ -maxdepth 2 -type d -name "common" | head -n 1) ./kernel-src
+                else
+                    echo "--- Cloning via git ---"
+                    rm -rf ./.repo/
+                    cd ..
+                    git clone --depth=1 ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }} ./kernel-src-clone/
+                    echo "--- Cloning finished ---"
+                    ln -sf ./kernel-src-clone ./kernel-src
+                fi
+            elif git ls-remote ${{ github.event.inputs.KERNEL_GIT }} > /dev/null; then
+                echo "--- Kernel source git link points to a valid git repo, but the branch specified is invalid, please specify the branch properly! ---"
+                exit 1
             else
-                echo "--- Cloning via git ---"
-                rm -rf ./.repo/
-                cd ..
-                git clone --depth=1 ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }} ./kernel-src-clone/
-                echo "--- Cloning finished ---"
-                ln -sf ./kernel-src-clone ./kernel-src
+                echo "--- Kernel source git link and branch points to an invalid git repo, please specify them properly! ---"
+                exit 1
             fi
 
         - name: 'Clone any submodules if present'
@@ -158,7 +168,16 @@ jobs:
             fi
 
             # Clone the KernelSU repository
-            git submodule add --force -b ${{ github.event.inputs.KSU_GIT_BRANCH }} ${{ github.event.inputs.KSU_GIT }} ./KernelSU
+            if git ls-remote ${{ github.event.inputs.KSU_GIT }} | grep -w "${{ github.event.inputs.KSU_GIT_BRANCH }}" > /dev/null; then
+                echo "--- KernelSU git link and branch points to a valid git repo! ---"
+                git submodule add --force -b ${{ github.event.inputs.KSU_GIT_BRANCH }} ${{ github.event.inputs.KSU_GIT }} ./KernelSU
+            elif git ls-remote ${{ github.event.inputs.KSU_GIT }} > /dev/null; then
+                echo "--- KernelSU git link points to a valid git repo, but the branch specified is invalid, please specify the branch properly! ---"
+                exit 1
+            else
+                echo "--- KernelSU git link and branch points to an invalid git repo, please specify them properly! ---"
+                exit 1
+            fi
 
             # Apply KernelSU patches
             ln -sf ../KernelSU/kernel ./drivers/kernelsu
