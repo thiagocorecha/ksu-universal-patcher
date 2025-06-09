@@ -55,6 +55,31 @@ jobs:
           with:
            fetch-depth: 0
 
+        - name: 'Validate workflow options'
+          run: |
+            if
+                if git ls-remote ${{ github.event.inputs.KERNEL_GIT }} | grep -w "${{ github.event.inputs.KERNEL_GIT_BRANCH }}" > /dev/null; then
+                    echo "--- Kernel source git link and branch points to a valid git repo! ---"
+                elif git ls-remote ${{ github.event.inputs.KERNEL_GIT }} > /dev/null; then
+                    echo "--- Kernel source git link points to a valid git repo, but the branch specified is invalid, please specify the branch properly! ---"
+                    exit 1
+                else
+                    echo "--- Kernel source git link and branch points to an invalid git repo, please specify them properly! ---"
+                    exit 1
+                fi
+                if git ls-remote ${{ github.event.inputs.KSU_GIT }} | grep -w "${{ github.event.inputs.KSU_GIT_BRANCH }}" > /dev/null; then
+                    echo "--- KernelSU git link and branch points to a valid git repo! ---"
+                elif git ls-remote ${{ github.event.inputs.KSU_GIT }} > /dev/null; then
+                    echo "--- KernelSU git link points to a valid git repo, but the branch specified is invalid, please specify the branch properly! ---"
+                    exit 1
+                else
+                    echo "--- KernelSU git link and branch points to an invalid git repo, please specify them properly! ---"
+                    exit 1
+                fi
+            then
+                echo "--- All link-related workflow options seem to be valid! ---"
+            fi
+
         - name: 'Debloat the OS'
           run: |
             export DEBIAN_FRONTEND=noninteractive
