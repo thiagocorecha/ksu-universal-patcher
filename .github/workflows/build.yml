@@ -76,7 +76,7 @@ jobs:
             rm -rf *.tar.xz
 
             # Install some general dependencies
-            sudo apt-get install -y p7zip-full tar bzip2 unrar gzip zip unzip
+            sudo apt-get install -y p7zip-full tar bzip2 unrar gzip zip unzip python3-dev repo
 
             # Download and extract compiler toolchain
             extract ()
@@ -123,7 +123,23 @@ jobs:
 
         - name: 'Clone kernel source'
           run: |
-            git clone --depth=1 ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }} ./kernel-src
+            rm -rf ./kernel-src*/
+            mkdir ./kernel-src-clone/
+            cd ./kernel-src-clone/
+            if repo init --no-repo-verify --git-lfs --depth=1 -u ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }}; then
+                echo "--- Syncing via repo ---"
+                repo sync -c --no-clone-bundle --no-tags --optimized-fetch --prune --force-sync -j$(nproc --all)
+                echo "--- Syncing finished ---"
+                cd ..
+                ln -sf $(find ./kernel-src-clone/ -maxdepth 2 -type d -name "common" | head -n 1) ./kernel-src
+            else
+                echo "--- Cloning via git ---"
+                rm -rf ./.repo/
+                cd ..
+                git clone --depth=1 ${{ github.event.inputs.KERNEL_GIT }} -b ${{ github.event.inputs.KERNEL_GIT_BRANCH }} ./kernel-src-clone/
+                echo "--- Cloning finished ---"
+                ln -sf ./kernel-src-clone ./kernel-src
+            fi
 
         - name: 'Clone any submodules if present'
           working-directory: './kernel-src'
