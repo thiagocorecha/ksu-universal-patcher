@@ -76,6 +76,15 @@ jobs:
                     echo "--- KernelSU git link and branch points to an invalid git repo, please specify them properly! ---"
                     exit 1
                 fi
+
+                if [ ! -z ${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }} ]; then
+                    if curl -sIL "${{ github.event.inputs.KERNEL_COMPILER_TOOLCHAIN }}" | grep -i "content-disposition: attachment" > /dev/null; then
+                        echo "--- Custom compiler prebuilt toolchain link is a valid direct download link ---"
+                    else
+                        echo "--- Custom compiler prebuilt toolchain link either isn't a direct download link or is invalid ---"
+                        exit 1
+                    fi
+                fi
             then
                 echo "--- All link-related workflow options seem to be valid! ---"
             fi
