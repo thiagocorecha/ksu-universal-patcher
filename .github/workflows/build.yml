@@ -267,6 +267,9 @@ jobs:
             # Cleanup
             rm -rf ./kernelsu-coccinelle/
 
+            # Delete files that may conflict with kernel functionality
+            rm -rf ./android/abi_gki_protected_exports*
+
         - name: 'Generate the kernel .config file'
           working-directory: './kernel-src'
           run: |
