@@ -42,8 +42,8 @@ on:
                 description: 'Direct link to custom compiler prebuilt toolchain (leave blank if not required):'
                 required: false
             KERNEL_COMPILER_PREFIX:
-                description: 'Path prefix for custom prebuilt toolchain (must define if custom toolchain, otherwise leave blank):'
-                required: false
+                description: KERNEL_COMPILER_TOOLCHAIN
+                required: true
             KERNEL_CONFIGS:
                 description: 'Space-seperated list of kernel configs by order (!IMPORTANT AND DANGEROUS!):'
                 required: true
